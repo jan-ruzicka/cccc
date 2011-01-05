@@ -514,7 +514,7 @@ extern_linkage_block : << string dummy; >>
 	;
 
 namespace_block : << string dummy; >>
-	  NAMESPACE { IDENTIFIER } LBRACE (link_item[dummy])* RBRACE SEMICOLON
+	  NAMESPACE { IDENTIFIER } LBRACE (link_item[dummy])* RBRACE
 	;
 
 using_statement :
