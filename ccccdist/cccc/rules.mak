@@ -134,7 +134,7 @@ all: $(CCCC_EXE)
 
 
 $(CCCC_EXE): $(USR_G) $(ANLTR_SPAWN) $(DLG_SPAWN) $(USR_H) $(USR_C) $(ALL_OBJ)
-	$(LD) $(ALL_OBJ) $(LD_EXTRA_LIBS) $(LDFLAGS) $(LD_OFLAG)$(CCCC_EXE)
+	$(LD) $(ALL_OBJ) $(LD_EXTRA_LIBS) $(LDFLAGS) $(LD_OFLAG) $(CCCC_EXE)
 
 .SUFFIXES: .cc .$(OBJEXT) .cpp .cxx .g .g_info
 

@@ -29,7 +29,7 @@ LD=g++
 CFLAGS=-c -I../pccts/h $(CFLAGS_DEBUG) -x c++ 
 C_OFLAG=-o
 LDFLAGS=$(LDFLAGS_DEBUG)
-LD_OFLAG=-o 
+LD_OFLAG=-o
 OBJEXT=o
 CCCC_EXE=cccc
 
