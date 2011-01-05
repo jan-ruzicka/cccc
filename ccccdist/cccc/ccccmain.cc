@@ -161,7 +161,7 @@ void Main::HandleArgs(int argc, char **argv)
 	{
 	  // the options below this point are all of the form --opt=val,
 	  // so we parse the argument to find the assignment 
-	  unsigned int assignment_pos=next_arg.find("=");
+	  size_t assignment_pos=next_arg.find("=");
 	  if(assignment_pos==string::npos)
 	    {
 	      cerr << "Unexpected option " << next_arg << endl;
