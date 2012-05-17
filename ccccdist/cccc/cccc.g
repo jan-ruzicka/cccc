@@ -81,8 +81,8 @@ inline void endOfLine(CLexer &lexer)
 
 // handle newlines
 #token DOS_NL		"\r\n"  << endOfLine(*this); >>
-#token MAC_NL		"\r"	<< endOfLine(*this); >>
-#token UNIX_NL		"\n"    << endOfLine(*this); >>
+#token MAC_NL		"\r"	  << endOfLine(*this); >>
+#token UNIX_NL	"\n"    << endOfLine(*this); >>
 
 
 /* preprocessor constructs - comments, #defines etc */
@@ -94,7 +94,10 @@ inline void endOfLine(CLexer &lexer)
 #token UNIX_P_EOL "\n" << mode(START); endOfLine(*this); >>
 #token P_LINECONT "\\\n" << ; skip(); >>
 #token P_ANYTHING "~[\n]" << ; more(); >>
-#token P_COMMULTI "/\*" << mode(COMMENT_MULTI); more(); skip(); >>
+// This special multi-line comment token nested inside the preprocessor
+// directive handling can advance the processing state to START causing
+// a comment nestled in the middle of a #define to fail.
+//#token P_COMMULTI "/\*" << mode(COMMENT_MULTI); more(); skip(); >> // 
 #lexclass START
 
 /*
@@ -173,6 +176,7 @@ inline void endOfLine(CLexer &lexer)
 // (Problem first seen under Borland C++ Builder v3).
 
 #token ASM "asm" << ; >>
+#token ATTRIBUTE "__attribute__" << ; >>
 #token AUTO "auto" << ; >>
 #token BREAK "break" << IncrementCount(tcMCCABES_VG); >>
 #token CASE "case" << ; >>
@@ -220,6 +224,7 @@ inline void endOfLine(CLexer &lexer)
 #token KW_VOID "void" << ; >>
 #token VOLATILE "volatile" << ; >>
 #token WHILE "while" << IncrementCount(tcMCCABES_VG); >>
+
 
 /* operators */
 
@@ -363,8 +368,9 @@ inline void endOfLine(CLexer &lexer)
 #lexclass START
 #token OCT_NUM "[0][0-7]*"
 #token L_OCT_NUM "[0][0-7]*[Ll]"
-#token INT_NUM "[1-9][0-9]*"
-#token L_INT_NUM "[1-9][0-9]*[Ll]"
+#token INT_NUM "[0-9][0-9]*" // added zero to the first digit's range
+#token L_INT_NUM "[0-9][0-9]*[Ll]" // added zero to the first digit's range
+#token UL_INT_NUM "[0-9][0-9]*[Uu][Ll]" // added 'unsigned long' (UL) literal
 #token HEX_NUM "[0][Xx][0-9A-Fa-f]+"
 #token L_HEX_NUM "[0][Xx][0-9A-Fa-f]+[Ll]"
 //#token FNUM "([1-9][0-9]*{.[0-9]*} | {[0]}.[0-9]+ | 0. ) {[Ee]{[\+\-]}[0-9]+}"
@@ -446,7 +452,7 @@ link_item[string& scope] :
           (EXTERN STRINGCONST LBRACE)? 
 	  extern_linkage_block
 	| namespace_block
-        | using_statement
+  | using_statement
 	| linkage_qualifiers definition_or_declaration[scope]
 	;
 
@@ -454,7 +460,7 @@ end_of_file : eof:Eof
 <<
   ps->record_other_extent(1,$eof->getLine(),"<file scope items>");
 >>
-        ;
+  ;
 
 
 definition_or_declaration[string& scope] : 
@@ -467,13 +473,13 @@ definition_or_declaration[string& scope] :
 	  typedef_definition
 	| ( explicit_template_instantiation )?
 	  | ( scoped_member_name SEMICOLON )? // e.g. 'friend CCCC_Project;'
-	| ( scoped_member_name LPAREN )? 
-	  method_declaration_or_definition_with_implicit_type[scope]
-	| (type[d1,d2,d3] scoped_member_name LPAREN )? 
+	| ( { attribute_specifier } type[d1,d2,d3] scoped_member_name LPAREN )? // added optional attribute_specifier
 	  method_declaration_or_definition_with_explicit_type[scope]
-	| (type[d1,d2,d3] scoped_member_name )?
+  | ( scoped_member_name LPAREN )? 
+	  method_declaration_or_definition_with_implicit_type[scope]
+	| ( type[d1,d2,d3] scoped_member_name )?
 	  instance_declaration[scope]
-	| (type[d1,d2,d3] LPAREN ASTERISK scoped_member_name RPAREN)?
+	| ( type[d1,d2,d3] LPAREN ASTERISK scoped_member_name RPAREN)?
 	  instance_declaration[scope]
 	| class_declaration_or_definition[scope]
 	| union_definition
@@ -481,7 +487,7 @@ definition_or_declaration[string& scope] :
 	  // suggested by Kenneth H. Cox to deal with coders who put
 	  // a semicolon after the '}' at the end of an inline method
 	  // definition
-	| SEMICOLON             
+	| SEMICOLON
 	;
 <<
 {
@@ -514,7 +520,7 @@ extern_linkage_block : << string dummy; >>
 	;
 
 namespace_block : << string dummy; >>
-	  NAMESPACE { IDENTIFIER } LBRACE (link_item[dummy])* RBRACE
+	  NAMESPACE { IDENTIFIER } LBRACE (link_item[dummy])* RBRACE // removed SEMICOLON
 	;
 
 using_statement :
@@ -522,8 +528,8 @@ using_statement :
 	;
 
 explicit_template_instantiation :
-          scoped_member_name angle_block SEMICOLON
-        ;
+    scoped_member_name angle_block SEMICOLON
+  ;
 
 class_declaration_or_definition[string& scope] : 
 << 
@@ -536,12 +542,12 @@ class_declaration_or_definition[string& scope] :
     int endLine=LT(1)->getLine(); 
     if(is_definition==false)
     {           	
-	ps->record_module_extent(startLine,endLine,modname,modtype,
+	     ps->record_module_extent(startLine,endLine,modname,modtype,
 				 "declaration",utDECLARATION);
     }
     else
     {
-	ps->record_module_extent(startLine,endLine,modname,modtype,
+	     ps->record_module_extent(startLine,endLine,modname,modtype,
 				 "definition",utDEFINITION);
     }
 >>
@@ -552,7 +558,7 @@ class_suffix[bool& is_definition,string& scope] :
 << is_definition=false; >> 
         | { inheritance_list[scope] } class_block[scope] class_suffix_trailer 
 << is_definition=true; >>  
-        ;
+  ;
 
 // version 3.pre42 
 // Attempting to add support for C-style anonymous struct declarations,
@@ -561,13 +567,13 @@ class_suffix[bool& is_definition,string& scope] :
 // of the anonymous class declared between the end of the definition block
 // and the semicolon.
 class_suffix_trailer :
-	   opt_instance_list SEMICOLON
-	 ;
+	  opt_instance_list SEMICOLON
+	;
 
 opt_instance_list :
-		  IDENTIFIER ( COMMA IDENTIFIER )*
-		| /* empty */
-		;
+		IDENTIFIER ( COMMA IDENTIFIER )* opt_initializer
+	| /* empty */
+	;
 
 union_definition : 
 	  (anonymous_union_definition)?
@@ -580,7 +586,7 @@ anonymous_union_definition :
 
 named_union_definition :	
 << int startLine=LT(1)->getLine(); >>
-	    UNION id:IDENTIFIER brace_block SEMICOLON
+	  UNION id:IDENTIFIER brace_block SEMICOLON
 <<
     ps->record_module_extent(startLine,startLine,
 			     $id->getText(),"union",
@@ -590,13 +596,13 @@ named_union_definition :
 
 
 enum_definition : 
-	 ( anonymous_enum_definition )?
-	 | named_enum_definition
-	 ;
+	( anonymous_enum_definition )?
+	| named_enum_definition
+	;
 
 anonymous_enum_definition :
-	    ENUM brace_block opt_instance_list SEMICOLON
-	  ;
+	  ENUM brace_block opt_instance_list SEMICOLON
+	;
 
 named_enum_definition :
 <<int startLine=LT(1)->getLine(); >>
@@ -615,12 +621,12 @@ named_enum_definition :
 */
 instance_declaration[string& scopeName] : 
 << int startLine=LT(1)->getLine(); string cvQuals,typeName,varName,indir; >>
-	  (cv_qualifier[cvQuals])* { STATIC }  type_name[typeName]
+	  (cv_qualifier[cvQuals])* { STATIC } type_name[typeName]
 	instance_item[indir,varName] ( COMMA instance_item[d1,d2] )* SEMICOLON
 <<
     if(indir.size()!=0)
     {
-	ps->record_userel_extent(startLine,startLine,
+	     ps->record_userel_extent(startLine,startLine,
 				 scopeName,varName,typeName,
 				 "has by reference",
 				 ps->get_visibility(),
@@ -628,14 +634,14 @@ instance_declaration[string& scopeName] :
     } 
     else 
     {
-	ps->record_userel_extent(startLine,startLine,
+	     ps->record_userel_extent(startLine,startLine,
 				 scopeName,"",typeName,
 				 "has by value", 
 				 ps->get_visibility(),
 				 utHASBYVAL);
     }
 >> 
-;
+  ;
 
 class_block [string& scope]:
 	  << 
@@ -676,7 +682,7 @@ method_declaration_or_definition_with_implicit_type[string& implicitScope] :
   int startLine=LT(1)->getLine(); bool is_definition; 
   string returnType,scope=implicitScope,methodName, paramList;
 >>
-	  method_signature[scope,methodName,paramList] 
+	  method_signature[scope,methodName,paramList]
           method_suffix[is_definition]
 	<<
 	  int endLine=LT(1)->getLine();
@@ -703,7 +709,7 @@ method_declaration_or_definition_with_implicit_type[string& implicitScope] :
 
 method_declaration_or_definition_with_explicit_type[string &scope] : 
 << string cvQualifiers,typeName,indirMods; >> 
-type[cvQualifiers,typeName,indirMods]
+{ attribute_specifier } type[cvQualifiers,typeName,indirMods] // added optional attribute_specifier
 method_declaration_or_definition_with_implicit_type[scope] 
 ;
 
@@ -731,7 +737,7 @@ method_suffix[bool& is_definition] :
            // lexer, it is seen as an octal literal 
          | ASSIGN_OP OCT_NUM SEMICOLON << is_definition=false; >>
            // definition of a constructor with an initializer list
-	 | ctor_init_list brace_block << is_definition=true; >>
+	       | ctor_init_list brace_block << is_definition=true; >>
            // definition of any other kind of method 
          | brace_block << is_definition=true; >>
 	 ;
@@ -740,10 +746,14 @@ method_signature[string& scope, string& methodName, string& paramList] :
 << 
     int startLine=LT(1)->getLine(); 
 >>
-         scoped_identifier[scope,methodName] param_list[scope,paramList] opt_const_modifier 
+         scoped_identifier[scope,methodName] param_list[scope,paramList] opt_const_modifier
 	 << 
 	 >>
 	 ;
+
+attribute_specifier :
+    ATTRIBUTE LPAREN balanced_list RPAREN
+   ;
 
 type[string& cvQualifiers, string& typeName, string& indirMods] :
            (cv_qualifier[cvQualifiers])* { STATIC }
@@ -805,88 +815,94 @@ type_keyword[string& typeName] :
 	;
 
 user_type[string& typeName] : << string scope,name; >>
-        { class_key[d1] } scoped_identifier[scope,name]
-        << typeName=pu->scopeCombine(scope,name); >>
-        ;
+  { class_key[d1] } scoped_identifier[scope,name]
+  << typeName=pu->scopeCombine(scope,name); >>
+  ;
 
-scoped_member_name: << string dummy1, dummy2; >>
-           scoped_identifier[dummy1,dummy2]
-	 ; 
+scoped_member_name: << string dummy1,dummy2; >>
+  scoped_identifier[dummy1,dummy2]
+	; 
 
+// added optional leading COLONCOLON below to support explicit anonymous namespace qualifier
 scoped_identifier[string& scope, string& name] :
-	   ( explicit_scope_spec[scope] )?
-	   explicit_scope_spec[scope] scoped_identifier[scope,name] 
-	 | unscoped_member_name[name]
-	 ;
+  ( { COLONCOLON } explicit_scope_spec[scope] )? 
+	  { COLONCOLON } explicit_scope_spec[scope] scoped_identifier[scope,name]
+	| unscoped_member_name[name]
+	;
 
 explicit_scope_spec[string& scope] :
-	   cl:IDENTIFIER {angle_block} COLONCOLON
+	cl:IDENTIFIER {angle_block} COLONCOLON
 <<
-   scope=cl->getText();
-   ps->set_flag(vDONTKNOW);
+  scope=cl->getText();
+  ps->set_flag(vDONTKNOW);
 >>
-	 ;
+	;
 
 unscoped_member_name[string& name] :
-	 ( 
-	   (id1:IDENTIFIER angle_block)? << name=$id1->getText(); >>
-	 | id2:IDENTIFIER << name=$id2->getText(); >>
-	 | dtor_member_name[name] 
-	 | operator_member_name[name] 
-	 )
-	 ;
+	( 
+	  (id1:IDENTIFIER angle_block)? << name=$id1->getText(); >>
+	| id2:IDENTIFIER << name=$id2->getText(); >>
+	| dtor_member_name[name] 
+	| operator_member_name[name] 
+	)
+	;
 
- dtor_member_name[string& name] :
-	   TILDA id:IDENTIFIER
-         << 
-            name="~";
-            name+=$id->getText();
-         >>
-
-	 ;
+dtor_member_name[string& name] :
+	  TILDA id:IDENTIFIER
+        << 
+           name="~";
+           name+=$id->getText();
+        >>
+	;
 
 operator_member_name[string& name] : << string operatorIdentifier; >>
-           OPERATOR operator_identifier[operatorIdentifier]
-	   << 
-		name+="operator ";
-		name+=operatorIdentifier; 
-	   >>
-	 ;
+          OPERATOR operator_identifier[operatorIdentifier]
+	  << 
+	  name+="operator ";
+	  name+=operatorIdentifier; 
+	  >>
+	;
 
 operator_identifier[string& opname] : 
 << 
 	string cv,name,indir;  
 	opname=LT(1)->getText();
 >>
-	   (op)?
-         | (new_or_delete LBRACK RBRACK)? << opname+="[]"; >>  
-	 | new_or_delete
-	 | type[cv,name,indir] << opname=name+indir; >>
-	 | LPAREN RPAREN << opname="()"; >>
-	 | LBRACK RBRACK << opname="[]"; >>
-	 ;
+	  (op)?
+        | (new_or_delete LBRACK RBRACK)? << opname+="[]"; >>  
+	| new_or_delete
+	| type[cv,name,indir] << opname=name+indir; >>
+	| LPAREN RPAREN << opname="()"; >>
+	| LBRACK RBRACK << opname="[]"; >>
+	;
 
 new_or_delete :
-	   NEW
-	 | DELETE
-	 ;
+	  NEW
+	| DELETE
+	;
 
 param_list[string& scope, string& params] :  
-	 << 
-           int startLine=LT(1)->getLine();
-           string param_items;
-	 >>
-	   ( LPAREN param_list_items[scope,param_items] RPAREN )?
-	 <<
-	    params="(";
-            params+=param_items;
-            params+=")";
-	 >>
-	 | paren_block 
-	 <<
-	    params="(...)";
-	 >>
-	 ;
+	<< 
+          int startLine=LT(1)->getLine();
+          string param_items;
+	>>
+	  ( LPAREN param_list_items[scope,param_items] RPAREN knr_param_decl_list )?
+	<<
+	   params="(";
+           params+=param_items;
+           params+=")";
+	>>
+	| ( LPAREN param_list_items[scope,param_items] RPAREN )?
+	<<
+	   params="(";
+           params+=param_items;
+           params+=")";
+	>>
+	| paren_block 
+	<<
+	   params="(...)";
+	>>
+	;
 
 param_list_items [string& scope, string& items] :
            /* empty */
@@ -894,25 +910,25 @@ param_list_items [string& scope, string& items] :
          ;
 
 more_param_items[string& scope, string& items] : 
-<< string next_item, further_items; >>
-           /* empty */
-         | COMMA param_item[scope,next_item] more_param_items[scope,further_items]
-	 <<
-	     items+=",";
-             items+=next_item;
-             items+=further_items;
-         >>
-         ;
+  << string next_item, further_items; >>
+     /* empty */
+  | COMMA param_item[scope,next_item] more_param_items[scope,further_items]
+	<<
+	   items+=",";
+     items+=next_item;
+     items+=further_items;
+  >>
+  ;
 
 param_item[string& scope, string& item] : 
-	   param_type[scope,item] param_spec
-	 ;
+	  param_type[scope,item] param_spec
+	;
 
 param_type[string& scope, string& typeName] : 
-<< 
+   << 
     string cvmods, name, indir;  
     int startLine=LT(1)->getLine();
->>
+   >>
 	   type[cvmods,name,indir] 
 	 <<
 		 // we distinguish between value & reference by
@@ -938,29 +954,26 @@ param_type[string& scope, string& typeName] :
 	 >>
 	 ;
 
- param_spec :
-	   { IDENTIFIER } { "=" literal }
-	 ;
-
-knr_param_decl_list :
-          /* empty */
-        | instance_declaration[d1] knr_param_decl_list
+param_spec :
+	  { IDENTIFIER } { ASSIGN_OP literal }
 	;
-<<
-        cerr << "failed knr_param_decl_list for token " 
-             << static_cast<int>(LT(1)->getType()) << ' ' 
-             << LT(1)->getText() << endl;
->>
+
+knr_param_decl_list : // reworked code for this production
+  (knr_param_decl_item)?
+     knr_param_decl_item knr_param_decl_list
+  |
+     /* empty */
+	;
+
+knr_param_decl_item :
+    type[d1,d2,d3] IDENTIFIER SEMICOLON
+  ;
 
 opt_const_modifier :
-          /* empty */
-	  <<
-		ps->set_flag(psfCONST,abFALSE);
-          >>
-        | KW_CONST 
-	  <<
-		ps->set_flag(psfCONST,abTRUE);
-	  >>
+  /* empty */
+	   << ps->set_flag(psfCONST,abFALSE); >>
+  | KW_CONST
+	   << ps->set_flag(psfCONST,abTRUE); >>
 	;
 <<
 	// fail action for opt_const_modifier
@@ -971,13 +984,14 @@ opt_const_modifier :
 >>
 
 typedef_definition : << string dummy; >>
-	   ( fptr_typedef_definition )?
-	|  ( TYPEDEF class_key[dummy])? struct_typedef_definition 
+	( fptr_typedef_definition )?
+	|  ( TYPEDEF class_key[dummy] identifier_opt LBRACE )? struct_typedef_definition
+  |  ( TYPEDEF ENUM )? enum_typedef_definition // added to handle 'typedef enum' statements
 	|  simple_typedef_definition
 	;
 
 fptr_typedef_definition :  
-	   TYPEDEF type[d1,d2,d3] fptr_type_alias SEMICOLON 
+	  TYPEDEF type[d1,d2,d3] fptr_type_alias SEMICOLON 
 	;
 
 // This rule added in response to a report sent by Tennis Smith of
@@ -986,11 +1000,15 @@ fptr_typedef_definition :
 // a typedef (either with or without a name).
 // There's a lot of this code out there...  
 struct_typedef_definition : << string dummy; >>
-	   TYPEDEF class_key[dummy] identifier_opt brace_block tag_list_opt SEMICOLON
+	  TYPEDEF class_key[dummy] identifier_opt brace_block tag_list_opt SEMICOLON
+	;
+
+enum_typedef_definition : // added to handle 'typedef enum' statements
+    TYPEDEF ENUM brace_block tag_list_opt SEMICOLON
 	;
 
 simple_typedef_definition :  
-	  TYPEDEF type[d1,d2,d3] simple_type_alias SEMICOLON
+    TYPEDEF type[d1,d2,d3] simple_type_alias SEMICOLON
 	;
 
 identifier_opt :
@@ -1004,11 +1022,12 @@ tag_list_opt :
 	;
 
 tag :
-	    ( ASTERISK )* IDENTIFIER
-	  ;
+	  ( ASTERISK )* IDENTIFIER
+	;
 
 simple_type_alias :
-	  id:IDENTIFIER
+  ( IDENTIFIER LBRACK )? IDENTIFIER LBRACK constant RBRACK
+  | id:IDENTIFIER
 	;
 
 fptr_type_alias :
@@ -1023,9 +1042,11 @@ class_or_method_declaration_or_definition[string& scope] : << string dummy; >>
 	;
 
 class_prefix[string& modname, string& modtype] :
+  ( class_key[modtype] scoped_identifier[d1,modname])?
     class_key[modtype] scoped_identifier[d1,modname] { angle_block }
-	// or perhaps an anonymous type...
-	| class_key[modtype]
+  |
+	  // or perhaps an anonymous type...
+	  class_key[modtype]
 	;
 
 inheritance_list [string& childName] :
@@ -1038,24 +1059,24 @@ inheritance_item_list[string& childName] :
 	;
 
 inheritance_access_key :
-      VIRTUAL { access_key }
-    | access_key { VIRTUAL }
-    | /* empty */
-    ;
+    VIRTUAL { access_key }
+  | access_key { VIRTUAL }
+  | /* empty */
+  ;
 
 inheritance_item[string& childName]  : 
-<< 
+  << 
     string parent_scope,parent_name; 
     int startLine=LT(1)->getLine(); 
->>
-	  inheritance_access_key  type_name[parent_name]
+  >>
+	inheritance_access_key  type_name[parent_name]
 	<<
-	        int endLine=LT(1)->getLine();
+	  int endLine=LT(1)->getLine();
 		ps->record_userel_extent(startLine,endLine,
-					 childName,"",parent_name,
-					 "inheritance",
-					 ps->get_visibility(),
-					 utINHERITS);
+	  childName,"",parent_name,
+	  "inheritance",
+		ps->get_visibility(),
+		utINHERITS);
 	>>
 	;
 	
@@ -1066,17 +1087,11 @@ class_key[string& modtype] : << modtype=LT(1)->getText(); >>
 
 access_key :
 	  PUBLIC! 
-	  << 
-		ps->set_flag(vPUBLIC); 
-	  >>
-        | PRIVATE! 
-	  << 
-		ps->set_flag(vPRIVATE); 
-	  >>
-        | PROTECTED! 
-	  << 
-		ps->set_flag(vPROTECTED); 
-	  >>
+		<< ps->set_flag(vPUBLIC); >>
+  | PRIVATE!
+		<< ps->set_flag(vPRIVATE); >>
+  | PROTECTED! 
+		<< ps->set_flag(vPROTECTED); >>
 	;
 
 ctor_init_list : 
@@ -1084,23 +1099,24 @@ ctor_init_list :
 	;
 
 ctor_init_item_list :
-	  ( ctor_init_item COMMA )? ctor_init_item COMMA ctor_init_item_list
+	( ctor_init_item COMMA )? ctor_init_item COMMA ctor_init_item_list
 	| ctor_init_item
 	;
 
 ctor_init_item :
-	  instance_item[d1,d2]
+	instance_item[d1,d2]
 	;
 
 linkage_qualifiers:
-      (linkage_qualifier)? linkage_qualifier linkage_qualifiers
+  (linkage_qualifier)?
+    linkage_qualifier linkage_qualifiers
 	| /* empty */
 	;
 
 linkage_qualifier :
-      STATIC            << ps->set_flag(psfSTATIC,abTRUE); >>
+    STATIC            << ps->set_flag(psfSTATIC,abTRUE); >>
 	| ( EXTERN STRINGCONST )?
-    | EXTERN            
+  | EXTERN
 	| INLINE
 	| TEMPLATE { angle_block }
 	;
@@ -1110,7 +1126,7 @@ identifier_or_brace_block_or_both :
 	;
 
 opt_brace_block :
-	 ( brace_block )?
+	( brace_block )?
 	| /* empty */
 	;
 
@@ -1119,8 +1135,8 @@ instance_item[string& indir,string& name] :
 	;
 
 item_specifier[string& indir,string& name] : 
-          LPAREN ASTERISK scoped_member_name RPAREN paren_block
-        | (indirection_modifier[indir])* scoped_identifier[d1,name]
+    LPAREN ASTERISK scoped_member_name RPAREN paren_block
+  | (indirection_modifier[indir])* scoped_identifier[d1,name]
 	;
 
 opt_initializer: << string dummy; >>
@@ -1130,8 +1146,13 @@ opt_initializer: << string dummy; >>
 	| /* empty */
 	;
 
-init_expr :
-	  ( init_expr_item op )? init_expr_item op init_expr 
+init_expr: << string indir,dummy1,dummy2; >>
+	   ( init_expr_item op )?
+     init_expr_item op init_expr
+  |  ( LPAREN type[d1,d2,d3] )?
+     LPAREN type[d1,d2,d3] RPAREN init_expr_item
+  |  ( indirection_modifier[indir] )?
+     (indirection_modifier[indir])* scoped_identifier[dummy1,dummy2]
 	|  init_expr_item
 	;
 
@@ -1165,6 +1186,7 @@ keyword :
         | SWITCH | TEMPLATE 
 	| KW_THIS | THROW | BTRUE | TRY | TYPEDEF | UNION | UNSIGNED | VIRTUAL 
 	| KW_VOID | VOLATILE | WHILE 
+  | ATTRIBUTE // added attribute clause
 	;
 
 op :
@@ -1182,7 +1204,7 @@ constant :
 literal :
 	  string_literal 
 	| CHARCONST | FNUM
-	| OCT_NUM | L_OCT_NUM | HEX_NUM | L_HEX_NUM | INT_NUM | L_INT_NUM
+	| OCT_NUM | L_OCT_NUM | HEX_NUM | L_HEX_NUM | INT_NUM | L_INT_NUM | UL_INT_NUM
 	| BTRUE | BFALSE
 	| ADD_OP literal
 	;
@@ -1262,15 +1284,15 @@ brack_block :
 	;
 
 brack_list :
-          ( brack_block )? brack_block brack_list
-        | /* empty */
-        ;
+  ( brack_block )? brack_block brack_list
+  | /* empty */
+  ;
 
 angle_balanced_list :
-          << LT(1)->getType() == LESSTHAN >>? angle_block angle_balanced_list
-        | << LT(1)->getType() == GREATERTHAN >>? 
-          /* empty, the token will be matched in parent rule angle_block */
-        | ~GREATERTHAN angle_balanced_list /* consume one token & recurse */
+     << LT(1)->getType() == LESSTHAN >>? angle_block angle_balanced_list
+   | << LT(1)->getType() == GREATERTHAN >>? 
+     /* empty, the token will be matched in parent rule angle_block */
+   | ~GREATERTHAN angle_balanced_list /* consume one token & recurse */
 	;
 
 angle_block : 
