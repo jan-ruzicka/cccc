@@ -92,8 +92,8 @@ inline void endOfLine(CLexer &lexer)
 #token DOS_P_EOL "\r\n" << mode(START); endOfLine(*this); >>
 #token MAC_P_EOL "\r" << mode(START); endOfLine(*this); >>
 #token UNIX_P_EOL "\n" << mode(START); endOfLine(*this); >>
-#token P_LINECONT "\\\n" << ; skip(); >>
-#token P_ANYTHING "~[\n]" << ; more(); >>
+#token P_LINECONT "\\[\ \t\r]*\n" << skip(); >>
+#token P_ANYTHING "~[\n]" << more(); >>
 // This special multi-line comment token nested inside the preprocessor
 // directive handling can advance the processing state to START causing
 // a comment nestled in the middle of a #define to fail.
@@ -473,7 +473,7 @@ definition_or_declaration[string& scope] :
 	  typedef_definition
 	| ( explicit_template_instantiation )?
 	  | ( scoped_member_name SEMICOLON )? // e.g. 'friend CCCC_Project;'
-	| ( { attribute_specifier } type[d1,d2,d3] scoped_member_name LPAREN )? // added optional attribute_specifier
+	| ( { attribute_specifier } type[d1,d2,d3] { INLINE } scoped_member_name LPAREN )?
 	  method_declaration_or_definition_with_explicit_type[scope]
   | ( scoped_member_name LPAREN )? 
 	  method_declaration_or_definition_with_implicit_type[scope]
@@ -571,7 +571,11 @@ class_suffix_trailer :
 	;
 
 opt_instance_list :
-		IDENTIFIER ( COMMA IDENTIFIER )* opt_initializer
+		opt_instance_item ( COMMA opt_instance_item )* opt_initializer
+	;
+
+opt_instance_item :
+		( ASTERISK )* IDENTIFIER brack_list
 	| /* empty */
 	;
 
@@ -709,7 +713,7 @@ method_declaration_or_definition_with_implicit_type[string& implicitScope] :
 
 method_declaration_or_definition_with_explicit_type[string &scope] : 
 << string cvQualifiers,typeName,indirMods; >> 
-{ attribute_specifier } type[cvQualifiers,typeName,indirMods] // added optional attribute_specifier
+{ attribute_specifier } type[cvQualifiers,typeName,indirMods] { INLINE }
 method_declaration_or_definition_with_implicit_type[scope] 
 ;
 
@@ -983,10 +987,11 @@ opt_const_modifier :
 	     << LT(1)->getText() << endl;
 >>
 
-typedef_definition : << string dummy; >>
+typedef_definition : << string dummy,typeName; >>
 	( fptr_typedef_definition )?
 	|  ( TYPEDEF class_key[dummy] identifier_opt LBRACE )? struct_typedef_definition
-  |  ( TYPEDEF ENUM )? enum_typedef_definition // added to handle 'typedef enum' statements
+	|  ( TYPEDEF type_name[typeName] IDENTIFIER LPAREN )? function_typedef_definition
+  |  ( TYPEDEF ENUM )? enum_typedef_definition
 	|  simple_typedef_definition
 	;
 
@@ -1003,7 +1008,11 @@ struct_typedef_definition : << string dummy; >>
 	  TYPEDEF class_key[dummy] identifier_opt brace_block tag_list_opt SEMICOLON
 	;
 
-enum_typedef_definition : // added to handle 'typedef enum' statements
+function_typedef_definition : << string typeName; >>
+ 	  TYPEDEF type_name[typeName] IDENTIFIER paren_block SEMICOLON
+  ;
+
+enum_typedef_definition :
     TYPEDEF ENUM brace_block tag_list_opt SEMICOLON
 	;
 
